@@ -41,9 +41,8 @@ services:
           property: url
 
   # 4. Frontend Client App (Vite Static Site with automatic HTTPS)
-  - type: web
+  - type: static
     name: qless-frontend
-    env: static
     buildCommand: npm run build
     publishDir: dist
     rootDirectory: frontend
