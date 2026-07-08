@@ -4,7 +4,7 @@ services:
     name: qless-ai-service
     plan: free
     env: docker
-    dockerfilePath: Dockerfile
+    dockerfilePath: ai_service/Dockerfile
     dockerContext: ai_service
     envVars:
       - key: PORT
@@ -15,7 +15,7 @@ services:
     name: qless-backend
     plan: free
     env: docker
-    dockerfilePath: Dockerfile
+    dockerfilePath: backend/Dockerfile
     dockerContext: backend
     envVars:
       - key: PORT
