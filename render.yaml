@@ -1,12 +1,8 @@
 services:
-  # 1. Managed Redis Queue Database
-  - type: redis
-    name: qless-redis
-    ipAllowList: [] # Secure: only accessible within the Render internal network
-
-  # 2. AI Triage Service (Python Flask)
+  # 1. AI Triage Service (Python Flask)
   - type: web
     name: qless-ai-service
+    plan: free
     env: docker
     dockerfilePath: Dockerfile
     dockerContext: ai_service
@@ -14,9 +10,10 @@ services:
       - key: PORT
         value: 5000
 
-  # 3. Backend REST API & Socket Server (Node/Express)
+  # 2. Backend REST API & Socket Server (Node/Express)
   - type: web
     name: qless-backend
+    plan: free
     env: docker
     dockerfilePath: Dockerfile
     dockerContext: backend
@@ -29,15 +26,13 @@ services:
         value: mongodb+srv://peddollavivek3_db_user:Vivek9347@cluster0.cwxatqx.mongodb.net/qless?retryWrites=true&w=majority&appName=Cluster0
       - key: JWT_SECRET
         value: dc51713d2a6245d278f3cb508718b9a2ba24923d4cf5f5b71642447e5d26febf22f7dfcff9d8bce8631733cd7712c96ba19249263c1a66db2fdfd1c086a4a274
+      # REDIS_URL will be input by the user on Render (using their free Upstash URL)
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: qless-redis
-          property: connectionString
+        sync: false
       - key: AI_SERVICE_URL
         value: http://qless-ai-service:5000
 
-  # 4. Frontend Client App (Vite Static Site with automatic HTTPS)
+  # 3. Frontend Client App (Vite Static Site with automatic HTTPS)
   - type: web
     name: qless-frontend
     runtime: static
