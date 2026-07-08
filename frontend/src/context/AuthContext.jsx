@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config';
 
 export const AuthContext = createContext();
 
@@ -20,40 +21,42 @@ const isTokenExpired = (token) => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [accessToken, setAccessToken] = useState(() => {
-    const storedToken = localStorage.getItem('accessToken');
-    if (storedToken && !isTokenExpired(storedToken)) {
-      return storedToken;
-    }
-    return null;
-  });
-  const [refreshToken, setRefreshToken] = useState(() => {
-    return localStorage.getItem('refreshToken');
-  });
-  const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('rememberMe') === 'true';
-  });
+  const [accessToken, setAccessToken] = useState(null);
+  const [refreshToken, setRefreshToken] = useState(null);
+  const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshQueue, setRefreshQueue] = useState([]);
 
-  // Load user data from localStorage
+  // Initialize from localStorage on app load
   useEffect(() => {
-    if (accessToken) {
-      const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('accessToken');
+    const storedRefreshToken = localStorage.getItem('refreshToken');
+    const storedUser = localStorage.getItem('user');
+    const storedRememberMe = localStorage.getItem('rememberMe');
+
+    if (storedToken && !isTokenExpired(storedToken)) {
+      setAccessToken(storedToken);
+      setRefreshToken(storedRefreshToken);
+      setRememberMe(storedRememberMe === 'true');
       if (storedUser) {
         try {
           setUser(JSON.parse(storedUser));
         } catch (err) {
-          setUser(null);
+          localStorage.removeItem('user');
         }
       }
     } else {
-      setUser(null);
+      // Clear expired tokens
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      localStorage.removeItem('rememberMe');
+      localStorage.removeItem('loginTime');
     }
-  }, [accessToken]);
+  }, []);
 
-  // Refresh access token
+  // Setup axios interceptors
   const refreshAccessToken = async () => {
     if (!refreshToken || isRefreshing) {
       return null;
@@ -61,7 +64,7 @@ export const AuthProvider = ({ children }) => {
 
     setIsRefreshing(true);
     try {
-      const res = await axios.post('http://localhost:8000/api/auth/refresh', {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
         refreshToken
       });
 
@@ -135,7 +138,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password, rememberMeChecked = false) => {
     try {
-      const res = await axios.post('http://localhost:8000/api/auth/login', {
+      const res = await axios.post(`${API_BASE_URL}/api/auth/login`, {
         email,
         password,
         rememberMe: rememberMeChecked
@@ -181,7 +184,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (name, email, password, role, specialization) => {
     try {
-      await axios.post('http://localhost:8000/api/auth/register', {
+      await axios.post(`${API_BASE_URL}/api/auth/register`, {
         name,
         email,
         password,
@@ -198,7 +201,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Notify backend of logout
       if (refreshToken) {
-        await axios.post('http://localhost:8000/api/auth/logout', {
+        await axios.post(`${API_BASE_URL}/api/auth/logout`, {
           refreshToken
         });
       }

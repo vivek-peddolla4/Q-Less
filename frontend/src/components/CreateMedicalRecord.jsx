@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import axios from 'axios';
 import { Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { AuthContext } from '../context/AuthContext';
+import { API_BASE_URL } from '../config';
 
 export default function CreateMedicalRecord({ patientId, patientName, queueTokenId, onSuccess }) {
+  const { token } = useContext(AuthContext);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [medicines, setMedicines] = useState([]);
@@ -46,6 +49,11 @@ export default function CreateMedicalRecord({ patientId, patientName, queueToken
     try {
       setLoading(true);
       
+      if (!token) {
+        toast.error('Session expired. Please login again');
+        return;
+      }
+
       // Filter medicines to only include those with name
       const filteredMedicines = medicines.filter(m => m.name && m.name.trim());
       
@@ -63,13 +71,7 @@ export default function CreateMedicalRecord({ patientId, patientName, queueToken
         } : null
       };
 
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        toast.error('Session expired. Please login again');
-        return;
-      }
-
-      const response = await axios.post('http://localhost:8000/api/medical/create', payload, {
+      const response = await axios.post(`${API_BASE_URL}/api/medical/create`, payload, {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -91,8 +93,12 @@ export default function CreateMedicalRecord({ patientId, patientName, queueToken
       if (onSuccess) onSuccess();
     } catch (err) {
       console.error('Medical record error:', err);
+      console.error('Full error response:', err.response?.data);
+      const debugInfo = err.response?.data?.debug || '';
+      const receivedRole = err.response?.data?.receivedRole || 'unknown';
       const errorMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Error creating medical record';
-      toast.error(errorMsg);
+      const fullMsg = debugInfo ? `${errorMsg}\nDebug: ${debugInfo}\nReceived Role: ${receivedRole}` : errorMsg;
+      toast.error(fullMsg);
     } finally {
       setLoading(false);
     }

@@ -5,11 +5,12 @@ module.exports = function(req, res, next) {
   if (!token) return res.status(401).json({ message: 'Auth Error: No token provided' });
 
   try {
-    const decoded = jwt.verify(token.replace('Bearer ', ''), process.env.JWT_SECRET);
+    const bearerToken = token.replace('Bearer ', '');
+    const decoded = jwt.verify(bearerToken, process.env.JWT_SECRET);
     req.user = decoded;
     next();
   } catch (e) {
-    console.error(e);
+    console.error('[AUTH] Token verification failed:', e.message);
     res.status(401).json({ message: 'Invalid Token' });
   }
 };

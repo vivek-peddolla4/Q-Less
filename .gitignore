@@ -9,11 +9,16 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+backend/.env
+# Allow the safe template — this one IS committed
+!.env.example
 
 # Build outputs
 dist/
 build/
 *.log
+backend/*.log
+.venv.zip
 
 # IDE
 .vscode/

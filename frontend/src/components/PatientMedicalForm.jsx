@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { AuthContext } from '../context/AuthContext';
+import { API_BASE_URL } from '../config';
 
 export default function PatientMedicalForm({ onSuccess }) {
   const { user } = useContext(AuthContext);
@@ -70,7 +71,7 @@ export default function PatientMedicalForm({ onSuccess }) {
       }
 
       // Use patient-create endpoint - no need to pass patientId
-      const response = await axios.post('http://localhost:8000/api/medical/patient-create', payload, {
+      const response = await axios.post(`${API_BASE_URL}/api/medical/patient-create`, payload, {
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'

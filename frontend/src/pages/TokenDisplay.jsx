@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
+import { API_BASE_URL } from '../config';
 import { Clock, User, AlertCircle, ArrowLeft } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { getDistance } from 'geolib';
@@ -15,7 +16,7 @@ const TokenDisplay = () => {
   const fetchToken = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      const res = await axios.get(`http://localhost:8000/api/queue/status/${id}`, {
+      const res = await axios.get(`${API_BASE_URL}/api/queue/status/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTokenData(res.data);
@@ -32,7 +33,7 @@ const TokenDisplay = () => {
     // Setup Socket.io
     const user = JSON.parse(localStorage.getItem('user')) || {};
     const userId = user.userId || localStorage.getItem('userId');
-    const socket = io('http://localhost:8000');
+    const socket = io(API_BASE_URL);
 
     if (userId) {
       socket.emit('join', userId);

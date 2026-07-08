@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { FileText, Download } from 'lucide-react';
 import { io } from 'socket.io-client';
+import { API_BASE_URL } from '../config';
 
 export default function PrescriptionsView({ patientId, refreshTrigger }) {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -14,21 +15,33 @@ export default function PrescriptionsView({ patientId, refreshTrigger }) {
 
   // Set up Socket.io listener for real-time prescription updates
   useEffect(() => {
-    const socket = io('http://localhost:8000');
+    if (!patientId) {
+      console.warn('PrescriptionsView: patientId not provided, skipping socket setup');
+      return;
+    }
+
+    const socket = io(API_BASE_URL);
     socketRef.current = socket;
 
     socket.on('connect', () => {
+      console.log('PrescriptionsView socket connected, joining room for patient:', patientId);
       socket.emit('joinPatientRoom', patientId);
     });
 
     // Listen for when a new medical record (with prescription) is created
     socket.on('medicalRecordCreated', (data) => {
-      if (data.patientId === patientId) {
+      console.log('PrescriptionsView received medicalRecordCreated event:', data);
+      console.log('Comparing patientId:', { received: data.patientId, expected: patientId, match: data.patientId === patientId });
+      if (data.patientId === patientId || data.patientId.toString() === patientId || data.patientId.toString() === patientId.toString()) {
+        console.log('PrescriptionsView: Refreshing prescriptions due to new record');
         fetchPrescriptions();
       }
     });
 
-    return () => socket.close();
+    return () => {
+      console.log('PrescriptionsView: Closing socket');
+      socket.close();
+    };
   }, [patientId]);
 
   const fetchPrescriptions = async () => {
@@ -36,16 +49,27 @@ export default function PrescriptionsView({ patientId, refreshTrigger }) {
       setLoading(true);
       const token = localStorage.getItem('accessToken');
       if (!token) {
+        console.warn('No token found for prescriptions fetch');
         setPrescriptions([]);
         setLoading(false);
         return;
       }
-      const res = await axios.get(`http://localhost:8000/api/medical/prescriptions/${patientId}`, {
+      if (!patientId) {
+        console.warn('No patientId provided to PrescriptionsView');
+        setPrescriptions([]);
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Fetching prescriptions for patient:', patientId);
+      const res = await axios.get(`${API_BASE_URL}/api/medical/prescriptions/${patientId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Prescriptions fetched:', res.data);
       setPrescriptions(res.data);
     } catch (err) {
-      console.error('Error fetching prescriptions:', err);
+      console.error('Error fetching prescriptions:', err.response?.data || err.message);
+      setPrescriptions([]);
     } finally {
       setLoading(false);
     }
@@ -100,7 +124,11 @@ ${record.followUpDate ? `\nFOLLOW-UP DATE: ${new Date(record.followUpDate).toLoc
       <h2 className="text-2xl font-bold text-gray-800 mb-6">My Prescriptions</h2>
 
       {prescriptions.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">No prescriptions found</p>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
+          <FileText className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-yellow-900 mb-2">No Prescriptions Yet</h3>
+          <p className="text-yellow-700">Prescriptions are created by doctors during your consultations. Complete a consultation to receive a prescription.</p>
+        </div>
       ) : (
         <div className="space-y-4">
           {prescriptions.map((record) => (

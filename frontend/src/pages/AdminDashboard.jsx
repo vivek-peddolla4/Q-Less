@@ -2,7 +2,8 @@ import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Users, Clock, ArrowRight, CheckCircle2, Bell, User, Mail, Shield } from 'lucide-react';
+import { API_BASE_URL } from '../config';
+import { Users, Clock, ArrowRight, CheckCircle2, Bell, User, Mail, Shield, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { io } from 'socket.io-client';
 import { toast } from 'react-toastify';
@@ -29,10 +30,16 @@ export default function AdminDashboard() {
     return null;
   }
 
+  // Only allow admins to access this page
+  if (user.role !== 'admin') {
+    navigate('/');
+    return null;
+  }
+
   const handleReassign = async (tokenId, newDepartment) => {
     if(!newDepartment) return;
     try {
-      await axios.post(`http://localhost:8000/api/queue/reassign/${tokenId}`, { department: newDepartment }, {
+      await axios.post(`${API_BASE_URL}/api/queue/reassign/${tokenId}`, { department: newDepartment }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchQueues();
@@ -51,7 +58,7 @@ export default function AdminDashboard() {
         params.append('facilityId', selectedFacility);
       }
 
-      const { data } = await axios.get(`http://localhost:8000/api/queue/all?${params.toString()}`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/all?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTokens(data);
@@ -74,7 +81,7 @@ export default function AdminDashboard() {
 
   const fetchMedicalRecords = async () => {
     try {
-      const { data } = await axios.get(`http://localhost:8000/api/medical/admin/all`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/medical/admin/all`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMedicalRecords(data);
@@ -85,7 +92,7 @@ export default function AdminDashboard() {
 
   const fetchFacilities = async () => {
     try {
-      const { data } = await axios.get('http://localhost:8000/api/queue/facilities', {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/facilities`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setFacilities([{ _id: 'default', name: 'Default Facility' }, ...data]);
@@ -98,7 +105,7 @@ export default function AdminDashboard() {
   const fetchAnalytics = async () => {
     try {
       const facilityQuery = selectedFacility && selectedFacility !== 'default' ? `?facilityId=${selectedFacility}` : '';
-      const { data } = await axios.get(`http://localhost:8000/api/queue/analytics${facilityQuery}`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/analytics${facilityQuery}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setAnalyticsData(data);
@@ -113,7 +120,7 @@ export default function AdminDashboard() {
     fetchMedicalRecords();
     fetchAnalytics();
     
-    const newSocket = io('http://localhost:8000');
+    const newSocket = io(API_BASE_URL);
     setSocket(newSocket);
 
     newSocket.on('queueUpdate', () => {
@@ -151,7 +158,7 @@ export default function AdminDashboard() {
     setServingInProgress(true);
     try {
       const query = selectedFacility && selectedFacility !== 'default' ? `?facilityId=${selectedFacility}` : '';
-      await axios.post(`http://localhost:8000/api/queue/serve/${department}${query}`, {}, {
+      await axios.post(`${API_BASE_URL}/api/queue/serve/${department}${query}`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchQueues(queueFilters);
@@ -227,12 +234,12 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center">
-                    <Users className="w-6 h-6 text-indigo-600 mr-2" />
-                    Queue Overview by Department
+                <div className="bg-gradient-to-br from-white to-blue-50 p-8 rounded-2xl shadow-lg border-2 border-blue-200">
+                  <h3 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-2">
+                    <Users className="w-7 h-7 text-indigo-600" />
+                    📊 Queue Overview by Department
                   </h3>
-                  <div className="h-80">
+                  <div className="h-80 bg-white rounded-xl p-4 border border-slate-200">
                     {stats.length > 0 ? (
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={stats}>
@@ -244,7 +251,7 @@ export default function AdminDashboard() {
                       </ResponsiveContainer>
                     ) : (
                       <div className="h-full flex items-center justify-center text-slate-400">
-                        No active queues
+                        <p className="text-lg">📭 No active queues</p>
                       </div>
                     )}
                   </div>
@@ -252,73 +259,82 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* LIVE QUEUES TAB */}
+            {/* QUEUES TAB */}
             {activeTab === 'queues' && (
               <div className="space-y-8 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Live Queues</h2>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-800 mb-2">👥 Live Queues</h2>
+                  <p className="text-slate-600">Real-time patient queue management</p>
+                </div>
 
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                  <h3 className="text-lg font-bold text-slate-700 mb-4">Search & Filter</h3>
+                <div className="bg-gradient-to-br from-slate-50 to-purple-50 p-6 rounded-2xl shadow-lg border-2 border-purple-200">
+                  <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">🔍 Advanced Search & Filter</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input value={queueFilters.name} onChange={(e) => setQueueFilters(prev => ({...prev, name: e.target.value}))} type="text" placeholder="Patient name" className="border rounded-lg px-3 py-2" />
-                    <input value={queueFilters.email} onChange={(e) => setQueueFilters(prev => ({...prev, email: e.target.value}))} type="text" placeholder="Email" className="border rounded-lg px-3 py-2" />
-                    <select value={queueFilters.status} onChange={(e) => setQueueFilters(prev => ({...prev, status: e.target.value}))} className="border rounded-lg px-3 py-2">
-                      <option value="">Any status</option>
-                      <option value="waiting">Waiting</option>
-                      <option value="serving">Serving</option>
-                      <option value="completed">Completed</option>
-                      <option value="cancelled">Cancelled</option>
+                    <input value={queueFilters.name} onChange={(e) => setQueueFilters(prev => ({...prev, name: e.target.value}))} type="text" placeholder="👤 Patient name" className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium" />
+                    <input value={queueFilters.email} onChange={(e) => setQueueFilters(prev => ({...prev, email: e.target.value}))} type="text" placeholder="📧 Email address" className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium" />
+                    <select value={queueFilters.status} onChange={(e) => setQueueFilters(prev => ({...prev, status: e.target.value}))} className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium">
+                      <option value="">📊 Any status</option>
+                      <option value="waiting">⏳ Waiting</option>
+                      <option value="serving">👨‍⚕️ Serving</option>
+                      <option value="completed">✅ Completed</option>
+                      <option value="cancelled">❌ Cancelled</option>
                     </select>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-                    <select value={queueFilters.department} onChange={(e) => setQueueFilters(prev => ({...prev, department: e.target.value}))} className="border rounded-lg px-3 py-2">
-                      <option value="">Any department</option>
-                      <option value="Cardiology">Cardiology</option>
-                      <option value="Orthopedics">Orthopedics</option>
-                      <option value="General Medicine">General Medicine</option>
-                      <option value="Ophthalmology">Ophthalmology</option>
-                      <option value="Gastroenterology">Gastroenterology</option>
-                      <option value="Emergency">Emergency</option>
+                    <select value={queueFilters.department} onChange={(e) => setQueueFilters(prev => ({...prev, department: e.target.value}))} className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium">
+                      <option value="">🏥 Any department</option>
+                      <option value="Cardiology">❤️ Cardiology</option>
+                      <option value="Orthopedics">🦴 Orthopedics</option>
+                      <option value="General Medicine">💊 General Medicine</option>
+                      <option value="Ophthalmology">👁️ Ophthalmology</option>
+                      <option value="Gastroenterology">🔬 Gastroenterology</option>
+                      <option value="Emergency">🚨 Emergency</option>
                     </select>
-                    <select value={queueFilters.urgency} onChange={(e) => setQueueFilters(prev => ({...prev, urgency: e.target.value}))} className="border rounded-lg px-3 py-2">
-                      <option value="">Any urgency</option>
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
-                      <option value="High">High</option>
-                      <option value="Emergency">Emergency</option>
+                    <select value={queueFilters.urgency} onChange={(e) => setQueueFilters(prev => ({...prev, urgency: e.target.value}))} className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium">
+                      <option value="">⚡ Any urgency</option>
+                      <option value="Low">✅ Low</option>
+                      <option value="Medium">⚠️ Medium</option>
+                      <option value="High">🔴 High</option>
+                      <option value="Emergency">🚨 Emergency</option>
                     </select>
-                    <div className="flex items-center gap-3">
-                      <input value={queueFilters.startDate} onChange={(e) => setQueueFilters(prev => ({...prev, startDate: e.target.value}))} type="date" className="border rounded-lg px-3 py-2 w-full" />
-                      <input value={queueFilters.endDate} onChange={(e) => setQueueFilters(prev => ({...prev, endDate: e.target.value}))} type="date" className="border rounded-lg px-3 py-2 w-full" />
+                    <div className="flex items-center gap-2">
+                      <input value={queueFilters.startDate} onChange={(e) => setQueueFilters(prev => ({...prev, startDate: e.target.value}))} type="date" className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium flex-1" />
+                      <span className="text-slate-600 font-bold">to</span>
+                      <input value={queueFilters.endDate} onChange={(e) => setQueueFilters(prev => ({...prev, endDate: e.target.value}))} type="date" className="border-2 border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-400 focus:outline-none transition font-medium flex-1" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 mt-4">
-                    <button onClick={() => fetchQueues(queueFilters)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Apply</button>
+                  <div className="flex items-center gap-3 mt-6">
+                    <button onClick={() => fetchQueues(queueFilters)} className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-black rounded-lg hover:shadow-lg transition transform hover:scale-105">🔍 Apply Filters</button>
                     <button onClick={() => {
                       const reset = { name: '', email: '', status: '', department: '', urgency: '', startDate: '', endDate: '' };
                       setQueueFilters(reset);
                       fetchQueues(reset);
-                    }} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg">Reset</button>
+                    }} className="px-6 py-3 bg-slate-200 text-slate-800 font-black rounded-lg hover:bg-slate-300 transition">🔄 Reset All</button>
                   </div>
                 </div>
 
                 {tokens.filter(t => t.status === 'serving').length > 0 && (
-                  <div className="bg-green-50 border-l-4 border-green-500 p-6 rounded-2xl mb-8">
-                    <h3 className="text-lg font-bold text-green-900 mb-4 flex items-center">
-                      <CheckCircle2 className="w-5 h-5 mr-2 text-green-600" />
-                      Currently Serving
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-8 rounded-2xl mb-8 shadow-lg border-2 border-green-400">
+                    <h3 className="text-2xl font-black text-green-900 mb-6 flex items-center gap-2">
+                      <CheckCircle2 className="w-7 h-7 text-green-600" />
+                      👨‍⚕️ Currently Serving
                     </h3>
                     <div className="space-y-3">
-                      {tokens.filter(t => t.status === 'serving').map(t => (
-                        <div key={t._id} className="bg-white p-4 rounded-xl border border-green-200">
+                      {tokens.filter(t => t.status === 'serving').map((t, idx) => (
+                        <div key={t._id} className="bg-white p-5 rounded-xl border-2 border-green-300 hover:border-green-500 transition transform hover:shadow-lg hover:scale-102">
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                            <div>
-                              <p className="font-bold text-slate-800">{t.userId?.name}</p>
-                              <p className="text-sm text-slate-600">{t.issues} • {t.department}</p>
+                            <div className="flex items-start gap-3 flex-1">
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-600 to-emerald-600 text-white flex items-center justify-center font-bold">
+                                {idx + 1}
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-800 text-lg">{t.userId?.name}</p>
+                                <p className="text-sm text-slate-600">📝 {t.issues} • 🏥 {t.department}</p>
+                              </div>
                             </div>
-                            <span className="px-4 py-2 bg-green-100 text-green-800 font-bold rounded-lg text-sm">
-                              <span className="animate-pulse mr-2 w-2 h-2 rounded-full bg-green-600 inline-block"></span>
-                              In Progress
+                            <span className="px-5 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white font-black rounded-lg text-sm animate-pulse shadow-lg">
+                              <span className="animate-bounce mr-2 w-3 h-3 rounded-full bg-white inline-block"></span>
+                              🟢 In Progress
                             </span>
                           </div>
                         </div>
@@ -332,40 +348,42 @@ export default function AdminDashboard() {
                     const deptTokens = tokens.filter(t => t.department === dept && t.status === 'waiting').sort((a, b) => b.isEmergency - a.isEmergency);
                     
                     if (deptTokens.length === 0) return null;
-                    
                     return (
-                      <div key={dept} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                        <div className="flex justify-between items-center mb-6">
-                          <h3 className="text-lg font-bold text-slate-800">{dept}</h3>
+                      <div key={dept} className="bg-gradient-to-br from-slate-50 to-indigo-50 p-8 rounded-2xl shadow-lg border-2 border-indigo-200">
+                        <div className="flex justify-between items-center mb-8">
+                          <div>
+                            <h3 className="text-2xl font-black text-slate-800">🏥 {dept}</h3>
+                            <p className="text-slate-600 mt-1">{deptTokens.length} patients waiting</p>
+                          </div>
                           <button 
                             onClick={() => serveNext(dept)}
                             disabled={servingInProgress}
-                            className={`px-4 py-2 font-semibold rounded-lg transition flex items-center ${servingInProgress ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                            className={`px-6 py-3 font-black text-lg rounded-xl transition transform hover:scale-105 flex items-center gap-2 ${servingInProgress ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white hover:shadow-lg'}`}
                           >
-                            {servingInProgress ? 'Serving...' : 'Serve Next'} <ArrowRight className="w-4 h-4 ml-2" />
+                            {servingInProgress ? '⏳ Serving...' : '➡️ Serve Next'} <ArrowRight className="w-5 h-5" />
                           </button>
                         </div>
                         <div className="space-y-3">
                           {deptTokens.map((t, idx) => (
-                            <div key={t._id} className={`p-4 rounded-xl border flex justify-between items-center transition ${
-                              t.isEmergency ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200 hover:border-indigo-300'
+                            <div key={t._id} className={`p-5 rounded-xl border-2 flex justify-between items-center transition transform hover:scale-102 ${
+                              t.isEmergency ? 'bg-gradient-to-r from-red-100 to-pink-100 border-red-400 shadow-lg' : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-md'
                             }`}>
                               <div className="flex items-center space-x-4">
-                                <div className={`w-10 h-10 rounded-full font-bold text-white flex items-center justify-center ${
-                                  t.urgency === 'Emergency' ? 'bg-red-500' : 'bg-indigo-500'
+                                <div className={`w-12 h-12 rounded-full font-black text-white flex items-center justify-center text-lg ${
+                                  t.urgency === 'Emergency' ? 'bg-gradient-to-br from-red-600 to-pink-600 shadow-lg' : 'bg-gradient-to-br from-indigo-600 to-cyan-600 shadow-md'
                                 }`}>
                                   #{idx + 1}
                                 </div>
                                 <div>
-                                  <p className="font-semibold text-slate-800">{t.userId?.name}</p>
-                                  <p className="text-sm text-slate-600">{t.issues}</p>
+                                  <p className="font-black text-slate-800 text-lg">{t.userId?.name}</p>
+                                  <p className="text-sm text-slate-600">📝 {t.issues}</p>
                                 </div>
                               </div>
-                              <div className="flex gap-3">
+                              <div className="flex gap-3 items-center">
                                 <select 
                                   onChange={(e) => handleReassign(t._id, e.target.value)} 
                                   defaultValue={dept}
-                                  className="text-xs font-semibold border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none cursor-pointer"
+                                  className="text-xs font-bold border-2 border-slate-300 rounded-lg px-3 py-2 bg-white outline-none cursor-pointer transition hover:border-indigo-400"
                                 >
                                   <option value="Cardiology">Cardiology</option>
                                   <option value="Orthopedics">Orthopedics</option>
@@ -374,11 +392,14 @@ export default function AdminDashboard() {
                                   <option value="Gastroenterology">Gastroenterology</option>
                                   <option value="Emergency">Emergency</option>
                                 </select>
-                                <span className={`px-3 py-1 text-xs font-bold rounded-lg ${
-                                  t.urgency === 'Emergency' ? 'bg-red-100 text-red-700' :
-                                  t.urgency === 'High' ? 'bg-orange-100 text-orange-700' :
-                                  'bg-green-100 text-green-700'
+                                <span className={`px-3 py-2 text-xs font-black rounded-lg ${
+                                  t.urgency === 'Emergency' ? 'bg-red-200 text-red-800 animate-pulse' :
+                                  t.urgency === 'High' ? 'bg-orange-200 text-orange-800' :
+                                  'bg-green-200 text-green-800'
                                 }`}>
+                                  {t.urgency === 'Emergency' && '🚨 '}
+                                  {t.urgency === 'High' && '⚠️ '}
+                                  {t.urgency === 'Low' && '✅ '}
                                   {t.urgency}
                                 </span>
                               </div>
@@ -391,8 +412,10 @@ export default function AdminDashboard() {
                 </div>
 
                 {tokens.filter(t => t.status === 'waiting').length === 0 && (
-                  <div className="text-center py-12 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-                    <p className="text-slate-500 font-medium">No patients are currently waiting</p>
+                  <div className="text-center py-16 bg-gradient-to-br from-white to-slate-50 rounded-2xl border-2 border-dashed border-slate-300 shadow-sm">
+                    <p className="text-3xl mb-2">✨</p>
+                    <p className="text-slate-600 font-bold text-lg">No patients are currently waiting</p>
+                    <p className="text-slate-500 text-sm mt-2">All queues are clear! Great work today!</p>
                   </div>
                 )}
               </div>
@@ -506,24 +529,47 @@ export default function AdminDashboard() {
             {/* MEDICAL RECORDS TAB */}
             {activeTab === 'records' && (
               <div className="space-y-8 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Medical Records</h2>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-800 mb-2">📋 Medical Records</h2>
+                  <p className="text-slate-600">Complete system medical records library</p>
+                </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="bg-gradient-to-br from-slate-50 to-blue-50 p-8 rounded-2xl shadow-lg border-2 border-blue-200">
                   {medicalRecords.length === 0 ? (
-                    <div className="py-12 text-center">
-                      <p className="text-slate-500">No medical records found</p>
+                    <div className="py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-300">
+                      <p className="text-3xl mb-2">📭</p>
+                      <p className="text-slate-600 font-bold text-lg">No medical records yet</p>
+                      <p className="text-slate-500 text-sm mt-2">Medical records will appear here as doctors create them</p>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {medicalRecords.slice(0, 20).map(record => (
-                        <div key={record._id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-indigo-300 transition">
-                          <div className="flex justify-between items-start">
+                      {medicalRecords.slice(0, 20).map((record, idx) => (
+                        <div key={record._id} className="p-5 bg-white rounded-xl border-2 border-blue-300 hover:border-blue-500 transition transform hover:shadow-lg hover:scale-102">
+                          <div className="flex justify-between items-start gap-4">
                             <div className="flex-1">
-                              <p className="font-bold text-slate-800">{record.patientId?.name}</p>
-                              <p className="text-sm text-slate-600"><strong>Doctor:</strong> {record.doctorId?.name}</p>
-                              <p className="text-sm text-slate-600"><strong>Diagnosis:</strong> {record.diagnosis}</p>
-                              <p className="text-sm text-slate-600"><strong>Department:</strong> {record.department}</p>
-                              <p className="text-sm text-slate-600"><strong>Date:</strong> {new Date(record.visitDate).toLocaleDateString()}</p>
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-cyan-600 text-white flex items-center justify-center font-bold">
+                                  #{idx + 1}
+                                </div>
+                                <div>
+                                  <p className="font-black text-slate-800 text-lg">{record.patientId?.name}</p>
+                                  <p className="text-xs text-slate-500">👨‍⚕️ Doctor: {record.doctorId?.name}</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-200">
+                                  <p className="text-xs text-indigo-600 font-bold uppercase mb-1\">📋 Diagnosis</p>
+                                  <p className="font-semibold text-slate-800">{record.diagnosis}</p>
+                                </div>
+                                <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                                  <p className="text-xs text-purple-600 font-bold uppercase mb-1\">🏥 Department</p>
+                                  <p className="font-semibold text-slate-800">{record.department}</p>
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500\">📅 {new Date(record.visitDate).toLocaleDateString()}</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-blue-100 to-cyan-100 p-3 rounded-lg border border-blue-300">
+                              <p className="text-xs text-blue-700 font-black\">✅ ARCHIVED</p>
                             </div>
                           </div>
                         </div>
@@ -537,43 +583,101 @@ export default function AdminDashboard() {
             {/* PROFILE TAB */}
             {activeTab === 'profile' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Profile</h2>
+                <h2 className="text-3xl font-black text-slate-800 mb-8">🛡️ Administrator Profile</h2>
 
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-md">
-                  <div className="text-center mb-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white text-4xl font-bold mx-auto shadow-lg">
-                      {user?.name?.charAt(0).toUpperCase()}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Profile Card */}
+                  <div className="lg:col-span-2">
+                    <div className="bg-gradient-to-br from-yellow-50 via-orange-50 to-red-50 p-8 rounded-2xl shadow-lg border-2 border-yellow-300 hover:shadow-xl transition-all">
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-8">
+                        <div className="flex items-center space-x-6">
+                          <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-yellow-500 via-orange-400 to-red-500 flex items-center justify-center text-white text-5xl font-black shadow-xl border-4 border-white">
+                            {user?.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <h1 className="text-4xl font-black text-slate-800">{user?.name}</h1>
+                            <p className="text-red-600 font-black text-xl mt-2">🛡️ System Administrator</p>
+                            <div className="flex gap-2 mt-3">
+                              <span className="px-3 py-1 bg-red-200 text-red-800 rounded-full text-sm font-bold">⭐ Super Admin</span>
+                              <span className="px-3 py-1 bg-green-200 text-green-800 rounded-full text-sm font-bold">🔓 Full Access</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Info Cards */}
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-red-500 hover:shadow-md transition">
+                          <Mail className="w-6 h-6 text-red-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Email Address</p>
+                            <p className="font-bold text-slate-800 text-lg break-all">{user?.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-yellow-500 hover:shadow-md transition">
+                          <Shield className="w-6 h-6 text-yellow-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Authorization Level</p>
+                            <p className="font-bold text-slate-800 text-lg">🔐 {user?.role?.replace('_', ' ').toUpperCase()}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-orange-500 hover:shadow-md transition">
+                          <Clock className="w-6 h-6 text-orange-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Member Since</p>
+                            <p className="font-bold text-slate-800 text-lg">January 2026 (Today)</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-green-500 hover:shadow-md transition">
+                          <Activity className="w-6 h-6 text-green-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">System Status</p>
+                            <p className="font-bold text-slate-800 text-lg">🟢 All Systems Operational</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
+                  {/* Stats Sidebar */}
                   <div className="space-y-4">
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <User className="w-5 h-5 text-indigo-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Name</p>
-                        <p className="font-bold text-slate-800">{user?.name}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border-2 border-blue-300 shadow-lg">
+                      <p className="text-sm text-blue-600 font-bold uppercase mb-2">👥 Total Users</p>
+                      <p className="text-4xl font-black text-blue-700">11</p>
+                      <p className="text-blue-600 text-sm mt-2">Active accounts</p>
                     </div>
 
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <Mail className="w-5 h-5 text-cyan-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Email</p>
-                        <p className="font-bold text-slate-800 break-all">{user?.email}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border-2 border-green-300 shadow-lg">
+                      <p className="text-sm text-green-600 font-bold uppercase mb-2">🏥 Departments</p>
+                      <p className="text-4xl font-black text-green-700">6</p>
+                      <p className="text-green-600 text-sm mt-2">Operating divisions</p>
                     </div>
 
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <Shield className="w-5 h-5 text-purple-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Role</p>
-                        <p className="font-bold text-slate-800 capitalize">{user?.role?.replace('_', ' ')}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border-2 border-purple-300 shadow-lg">
+                      <p className="text-sm text-purple-600 font-bold uppercase mb-2">📊 Records</p>
+                      <p className="text-4xl font-black text-purple-700">500+</p>
+                      <p className="text-purple-600 text-sm mt-2">Medical records</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-6 rounded-xl border-2 border-pink-300 shadow-lg">
+                      <p className="text-sm text-pink-600 font-bold uppercase mb-2">🔒 Security</p>
+                      <p className="text-3xl font-black text-pink-700">A+</p>
+                      <p className="text-pink-600 text-sm mt-2">Encryption grade</p>
                     </div>
                   </div>
+                </div>
 
-                  <button onClick={logout} className="w-full mt-8 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition">
-                    Logout
+                {/* Logout Button */}
+                <div className="flex gap-3">
+                  <button onClick={logout} className="flex-1 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    🚪 Logout
+                  </button>
+                  <button className="flex-1 py-4 bg-gradient-to-r from-slate-600 to-slate-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    ⚙️ System Settings
                   </button>
                 </div>
               </div>

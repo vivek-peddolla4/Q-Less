@@ -11,41 +11,24 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-// Middleware to verify doctor/admin token
+// Middleware to verify doctor/admin role (use auth first, then check role)
 const verifyDoctor = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ message: 'No authorization header' });
-    }
-
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-    
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    req.userId = decoded.userId;
-    req.userRole = decoded.role;
-    
-    // Check if user is doctor or admin
-    if (decoded.role !== 'service_provider' && decoded.role !== 'admin') {
-      return res.status(403).json({ message: 'Only doctors/admins can create medical records' });
-    }
-    
+  // req.user is already set by auth middleware
+  if (req.user && (req.user.role === 'service_provider' || req.user.role === 'admin')) {
     next();
-  } catch (err) {
-    console.error('Auth error:', err.message);
-    res.status(401).json({ message: 'Invalid or expired token', error: err.message });
+  } else {
+    return res.status(403).json({ 
+      message: 'Only doctors/admins can create medical records',
+      receivedRole: req.user?.role,
+      debug: 'User object: ' + JSON.stringify(req.user)
+    });
   }
 };
 
 // ===== DOCTOR ENDPOINTS =====
 
 // Create medical record after consultation
-router.post('/create', verifyDoctor, async (req, res) => {
+router.post('/create', auth, verifyDoctor, async (req, res) => {
   try {
     const { patientId, diagnosis, symptoms, treatment, prescription, followUpDate, notes, queueTokenId } = req.body;
 
@@ -66,16 +49,18 @@ router.post('/create', verifyDoctor, async (req, res) => {
     }
 
     // Get doctor's specialization as department
-    const doctor = await User.findById(req.userId);
+    const doctor = await User.findById(req.user.userId);
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
+    const department = doctor.specialization || 'General Medicine';
+    
     const medicalRecord = new MedicalRecord({
       patientId,
-      doctorId: req.userId,
+      doctorId: req.user.userId,
       visitDate: new Date(),
-      department: doctor.specialization || 'General Medicine',
+      department: department,
       diagnosis: diagnosis.trim(),
       symptoms: symptoms ? symptoms.trim() : '',
       treatment: treatment ? treatment.trim() : '',
@@ -95,7 +80,7 @@ router.post('/create', verifyDoctor, async (req, res) => {
     patientHistory.visits.push({
       visitDate: new Date(),
       department: doctor.specialization || 'General',
-      doctor: req.userId,
+      doctor: req.user.userId,
       status: 'completed',
       medicalRecordId: savedRecord._id
     });
@@ -115,7 +100,7 @@ router.post('/create', verifyDoctor, async (req, res) => {
     req.io.to(`patient_${patientId}`).emit('medicalRecordCreated', {
       patientId,
       medicalRecordId: savedRecord._id,
-      doctorId: req.userId,
+      doctorId: req.user.userId,
       department: department || 'General',
       diagnosis: diagnosis.trim()
     });
@@ -134,7 +119,7 @@ router.post('/create', verifyDoctor, async (req, res) => {
 });
 
 // Update medical record
-router.put('/update/:id', verifyDoctor, async (req, res) => {
+router.put('/update/:id', auth, verifyDoctor, async (req, res) => {
   try {
     const { diagnosis, treatment, prescription, followUpDate, notes } = req.body;
     
@@ -143,7 +128,7 @@ router.put('/update/:id', verifyDoctor, async (req, res) => {
       return res.status(404).json({ message: 'Medical record not found' });
     }
 
-    if (medicalRecord.doctorId.toString() !== req.userId) {
+    if (medicalRecord.doctorId.toString() !== req.user.userId) {
       return res.status(403).json({ message: 'Not authorized to update this record' });
     }
 
@@ -161,12 +146,12 @@ router.put('/update/:id', verifyDoctor, async (req, res) => {
 });
 
 // Add/update prescription under medical record
-router.post('/:id/prescription', verifyDoctor, async (req, res) => {
+router.post('/:id/prescription', auth, verifyDoctor, async (req, res) => {
   try {
     const { medicines, notes } = req.body;
     const medicalRecord = await MedicalRecord.findById(req.params.id);
     if (!medicalRecord) return res.status(404).json({ message: 'Medical record not found' });
-    if (medicalRecord.doctorId.toString() !== req.userId && req.userRole !== 'admin') {
+    if (medicalRecord.doctorId.toString() !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized to update this medical record' });
     }
 
@@ -255,7 +240,16 @@ router.get('/history/:patientId', auth, async (req, res) => {
       .populate('visits.medicalRecordId');
 
     if (!patientHistory) {
-      return res.status(404).json({ message: 'No history found' });
+      // Return empty history instead of 404
+      return res.json({
+        patientId: req.params.patientId,
+        totalVisits: 0,
+        visits: [],
+        bloodType: null,
+        allergies: null,
+        lastVisitDate: null,
+        medicalConditions: []
+      });
     }
 
     res.json(patientHistory);
@@ -271,10 +265,7 @@ router.get('/records/:patientId', auth, async (req, res) => {
       .populate('doctorId', 'name specialization')
       .sort({ visitDate: -1 });
 
-    if (medicalRecords.length === 0) {
-      return res.status(404).json({ message: 'No medical records found' });
-    }
-
+    // Return empty array instead of 404 error
     res.json(medicalRecords);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -299,7 +290,7 @@ router.get('/record/:id', auth, async (req, res) => {
 });
 
 // Prescription export as PDF
-router.get('/prescriptions/pdf/:id', verifyDoctor, async (req, res) => {
+router.get('/prescriptions/pdf/:id', auth, verifyDoctor, async (req, res) => {
   try {
     const record = await MedicalRecord.findById(req.params.id).populate('patientId', 'name email').populate('doctorId', 'name specialization');
     if (!record) return res.status(404).json({ message: 'Medical record not found' });
@@ -343,6 +334,7 @@ router.get('/prescriptions/:patientId', auth, async (req, res) => {
       .populate('doctorId', 'name specialization')
       .sort({ visitDate: -1 });
 
+    // Return empty array if no prescriptions found
     res.json(medicalRecords);
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -375,7 +367,7 @@ router.put('/profile/:patientId', async (req, res) => {
 // ===== ADMIN ENDPOINTS =====
 
 // Get all medical records (admin only)
-router.get('/admin/all', verifyDoctor, async (req, res) => {
+router.get('/admin/all', auth, verifyDoctor, async (req, res) => {
   try {
     const medicalRecords = await MedicalRecord.find()
       .populate('patientId', 'name email')
@@ -389,7 +381,7 @@ router.get('/admin/all', verifyDoctor, async (req, res) => {
 });
 
 // Get doctor's patient list
-router.get('/doctor/patients/:doctorId', verifyDoctor, async (req, res) => {
+router.get('/doctor/patients/:doctorId', auth, verifyDoctor, async (req, res) => {
   try {
     const medicalRecords = await MedicalRecord.find({ doctorId: req.params.doctorId })
       .populate('patientId', 'name email')
@@ -447,7 +439,7 @@ router.get('/feedback/doctor/:doctorId', auth, async (req, res) => {
   }
 });
 
-router.get('/feedback/report', verifyDoctor, async (req, res) => {
+router.get('/feedback/report', auth, verifyDoctor, async (req, res) => {
   try {
     if (req.userRole !== 'admin') return res.status(403).json({ message: 'Admin only' });
     const feedbackByDoctor = await Feedback.aggregate([

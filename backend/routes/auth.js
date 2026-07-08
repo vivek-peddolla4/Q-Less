@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const auth = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -174,9 +175,12 @@ router.post('/logout', async (req, res) => {
   }
 });
 
-// Temporary endpoint to view all users (Development only!)
-router.get('/users', async (req, res) => {
+// Temporary endpoint to view all users (Development only - Secured for Admin only!)
+router.get('/users', auth, async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Admin role required' });
+    }
     const users = await User.find({}).select('-password -refreshTokens');
     res.json(users);
   } catch (err) {

@@ -2,7 +2,8 @@ import { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Clock, CheckCircle2, User, Mail, Briefcase } from 'lucide-react';
+import { API_BASE_URL } from '../config';
+import { Clock, CheckCircle2, User, Mail, Briefcase, Heart, Activity } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { toast } from 'react-toastify';
 import Navbar from '../components/Navbar';
@@ -29,10 +30,16 @@ export default function DoctorDashboard() {
     return null;
   }
 
+  // Only allow doctors/service providers to access this page
+  if (user.role !== 'service_provider') {
+    navigate('/');
+    return null;
+  }
+
   const fetchQueues = async () => {
     try {
       const query = selectedFacility && selectedFacility !== 'default' ? `?facilityId=${selectedFacility}` : '';
-      const { data } = await axios.get(`http://localhost:8000/api/queue/all${query}`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/all${query}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const myTokens = data.filter(t => t.department === user.specialization);
@@ -50,7 +57,7 @@ export default function DoctorDashboard() {
 
   const fetchFacilities = async () => {
     try {
-      const { data } = await axios.get('http://localhost:8000/api/queue/facilities', {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/facilities`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setFacilities([{ _id: 'default', name: 'Default Facility' }, ...data]);
@@ -62,7 +69,7 @@ export default function DoctorDashboard() {
 
   const fetchMedicalRecords = async () => {
     try {
-      const { data } = await axios.get(`http://localhost:8000/api/medical/admin/all`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/medical/admin/all`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMedicalRecords(data.filter(r => r.doctorId?._id === user.id));
@@ -78,7 +85,7 @@ export default function DoctorDashboard() {
     fetchQueues();
     fetchMedicalRecords();
 
-    const newSocket = io('http://localhost:8000');
+    const newSocket = io(API_BASE_URL);
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
@@ -102,7 +109,7 @@ export default function DoctorDashboard() {
     setServingInProgress(true);
     try {
       const query = selectedFacility && selectedFacility !== 'default' ? `?facilityId=${selectedFacility}` : '';
-      await axios.post(`http://localhost:8000/api/queue/serve/${user.specialization}${query}`, {}, {
+      await axios.post(`${API_BASE_URL}/api/queue/serve/${user.specialization}${query}`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchQueues();
@@ -119,7 +126,7 @@ export default function DoctorDashboard() {
     }
 
     try {
-      await axios.post('http://localhost:8000/api/medical/feedback', {
+      await axios.post(`${API_BASE_URL}/api/medical/feedback`, {
         doctorId: user.id,
         rating: feedbackRating,
         comments: feedbackComments,
@@ -216,7 +223,7 @@ export default function DoctorDashboard() {
                               />
                               <button onClick={async () => {
                                 try {
-                                  await axios.post(`http://localhost:8000/api/queue/complete/${t._id}`, {}, { 
+                                  await axios.post(`${API_BASE_URL}/api/queue/complete/${t._id}`, {}, { 
                                     headers: { Authorization: `Bearer ${token}` }
                                   });
                                   fetchQueues();
@@ -235,36 +242,58 @@ export default function DoctorDashboard() {
                 )}
 
                 {/* Patient Queue */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-2xl font-bold text-slate-800">Patient Queue</h3>
-                    <button onClick={handleServeNext} disabled={servingInProgress} className={`px-4 py-2 font-semibold rounded-lg transition ${servingInProgress ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
-                      {servingInProgress ? 'Serving...' : 'Serve Next'}
+                <div className="bg-gradient-to-br from-slate-50 to-blue-50 p-8 rounded-2xl shadow-lg border-2 border-blue-200">
+                  <div className="flex justify-between items-center mb-8">
+                    <div>
+                      <h3 className="text-3xl font-black text-slate-800 flex items-center gap-2">👥 Patient Queue</h3>
+                      <p className="text-slate-600 mt-2">Waiting for consultation</p>
+                    </div>
+                    <button onClick={handleServeNext} disabled={servingInProgress} className={`px-6 py-3 font-black text-lg rounded-xl transition transform hover:scale-105 ${
+                      servingInProgress ? 'bg-slate-300 text-slate-600 cursor-not-allowed' : 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white hover:shadow-lg'
+                    }`}>
+                      {servingInProgress ? '⏳ Serving...' : '➡️ Serve Next'}
                     </button>
                   </div>
 
                   {waitingData.length === 0 ? (
-                    <div className="py-12 text-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-                      <p className="text-slate-500 font-medium">No patients waiting</p>
+                    <div className="py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-300 shadow-sm">
+                      <p className="text-3xl mb-2">✨</p>
+                      <p className="text-slate-600 font-bold text-lg">No patients waiting</p>
+                      <p className="text-slate-500 text-sm mt-2">Queue is clear! Great work!</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {waitingData.map((t, idx) => (
-                        <div key={t._id} className={`p-4 rounded-xl border flex items-center justify-between transition ${
-                          t.isEmergency ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200 hover:border-indigo-300'
+                        <div key={t._id} className={`p-5 rounded-xl border-2 flex items-center justify-between transition transform hover:scale-102 ${
+                          t.isEmergency 
+                            ? 'bg-gradient-to-r from-red-100 to-pink-100 border-red-400 shadow-lg' 
+                            : 'bg-white border-slate-200 hover:border-indigo-400 hover:shadow-md'
                         }`}>
                           <div className="flex items-center space-x-4">
-                            <div className={`w-10 h-10 rounded-full font-bold text-white flex items-center justify-center ${
-                              t.isEmergency ? 'bg-red-500' : 'bg-indigo-500'
+                            <div className={`w-12 h-12 rounded-full font-black text-white flex items-center justify-center text-lg ${
+                              t.isEmergency ? 'bg-gradient-to-br from-red-600 to-pink-600 shadow-lg' : 'bg-gradient-to-br from-indigo-600 to-cyan-600 shadow-md'
                             }`}>
                               #{idx + 1}
                             </div>
                             <div>
-                              <p className="font-semibold text-slate-800">{t.userId?.name}</p>
-                              <p className="text-sm text-slate-600">{t.issues}</p>
+                              <p className="font-black text-slate-800 text-lg">{t.userId?.name}</p>
+                              <p className="text-sm text-slate-600">📝 {t.issues}</p>
                             </div>
                           </div>
-                          {t.isEmergency && <span className="bg-red-100 text-red-700 px-2 py-1 text-xs font-bold rounded">Emergency</span>}
+                          <div className="flex items-center gap-3">
+                            {t.isEmergency && (
+                              <span className="bg-gradient-to-r from-red-600 to-pink-600 text-white px-3 py-1 text-xs font-black rounded-full animate-pulse">
+                                🚨 EMERGENCY
+                              </span>
+                            )}
+                            <span className={`px-3 py-1 text-xs font-bold rounded-lg ${
+                              t.urgency === 'Emergency' ? 'bg-red-200 text-red-800' :
+                              t.urgency === 'High' ? 'bg-orange-200 text-orange-800' :
+                              'bg-green-200 text-green-800'
+                            }`}>
+                              {t.urgency}
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -276,36 +305,56 @@ export default function DoctorDashboard() {
             {/* HISTORY TAB */}
             {activeTab === 'history' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Patient History</h2>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-800 mb-2">📜 Patient Visit History</h2>
+                  <p className="text-slate-600">All patients you've consulted with</p>
+                </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="bg-gradient-to-br from-slate-50 to-purple-50 p-8 rounded-2xl shadow-lg border-2 border-purple-200">
                   {tokens.length === 0 ? (
-                    <div className="py-12 text-center">
-                      <p className="text-slate-500">No patient visits found</p>
+                    <div className="py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-300">
+                      <p className="text-3xl mb-2">📭</p>
+                      <p className="text-slate-600 font-bold text-lg">No patient visits yet</p>
+                      <p className="text-slate-500 text-sm mt-2">Patients will appear here after consultation</p>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {tokens.map(t => (
-                        <div key={t._id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-indigo-300 transition">
+                      {tokens.map((t, idx) => (
+                        <div key={t._id} className={`p-5 rounded-xl border-2 transition transform hover:scale-102 hover:shadow-lg ${
+                          t.status === 'completed' ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-300' :
+                          t.status === 'serving' ? 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-300' :
+                          'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-300'
+                        }`}>
                           <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-bold text-slate-800">{t.userId?.name}</p>
-                              <p className="text-sm text-slate-600 mt-1"><strong>Issues:</strong> {t.issues}</p>
-                              <p className="text-sm text-slate-600"><strong>Department:</strong> {t.department}</p>
-                              <p className="text-sm text-slate-600"><strong>Visit Date:</strong> {new Date(t.visitDate).toLocaleDateString()}</p>
+                            <div className="flex items-start gap-4 flex-1">
+                              <div className={`w-10 h-10 rounded-full font-bold flex items-center justify-center text-white text-sm ${
+                                t.status === 'completed' ? 'bg-gradient-to-br from-green-600 to-emerald-600' :
+                                t.status === 'serving' ? 'bg-gradient-to-br from-blue-600 to-cyan-600' :
+                                'bg-gradient-to-br from-yellow-600 to-orange-600'
+                              }`}>
+                                #{idx + 1}
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-800 text-lg">{t.userId?.name}</p>
+                                <p className="text-sm text-slate-600 mt-1">📝 <strong>Issues:</strong> {t.issues}</p>
+                                <p className="text-sm text-slate-600">🏥 <strong>Department:</strong> {t.department}</p>
+                                <p className="text-sm text-slate-600">📅 <strong>Date:</strong> {new Date(t.visitDate).toLocaleDateString()}</p>
+                              </div>
                             </div>
-                            <span className={`px-3 py-1 text-xs font-bold rounded-lg ${
-                              t.status === 'completed' ? 'bg-green-100 text-green-700' :
-                              t.status === 'serving' ? 'bg-blue-100 text-blue-700' :
-                              'bg-yellow-100 text-yellow-700'
-                            }`}>
-                              {t.status.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex gap-2">
-                            <button onClick={() => setFeedbackTargetPatient(t.userId?._id)} className="px-3 py-1 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
-                              Rate patient
-                            </button>
+                            <div className="flex flex-col gap-2 items-end">
+                              <span className={`px-3 py-1.5 text-xs font-black rounded-full ${
+                                t.status === 'completed' ? 'bg-green-200 text-green-800' :
+                                t.status === 'serving' ? 'bg-blue-200 text-blue-800' :
+                                'bg-yellow-200 text-yellow-800'
+                              }`}>
+                                {t.status === 'completed' ? '✅ Completed' :
+                                 t.status === 'serving' ? '👨‍⚕️ Serving' :
+                                 '⏳ Waiting'}
+                              </span>
+                              <button onClick={() => setFeedbackTargetPatient(t.userId?._id)} className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition">
+                                ⭐ Rate
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -339,24 +388,53 @@ export default function DoctorDashboard() {
             {/* MEDICAL RECORDS TAB */}
             {activeTab === 'records' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Medical Records Created</h2>
+                <div>
+                  <h2 className="text-3xl font-black text-slate-800 mb-2">📋 Medical Records I Created</h2>
+                  <p className="text-slate-600">Complete documentation of all consultations</p>
+                </div>
 
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="bg-gradient-to-br from-slate-50 to-green-50 p-8 rounded-2xl shadow-lg border-2 border-green-200">
                   {medicalRecords.length === 0 ? (
-                    <div className="py-12 text-center">
-                      <p className="text-slate-500">No medical records yet</p>
+                    <div className="py-16 text-center bg-white rounded-2xl border-2 border-dashed border-slate-300">
+                      <p className="text-3xl mb-2">📭</p>
+                      <p className="text-slate-600 font-bold text-lg">No medical records created yet</p>
+                      <p className="text-slate-500 text-sm mt-2">Records will appear here after you create them for patients</p>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {medicalRecords.map(record => (
-                        <div key={record._id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-indigo-300 transition">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-bold text-slate-800">{record.patientId?.name || 'Unknown'}</p>
-                              <p className="text-sm text-slate-600 mt-1"><strong>Diagnosis:</strong> {record.diagnosis}</p>
-                              <p className="text-sm text-slate-600"><strong>Department:</strong> {record.department}</p>
-                              <p className="text-sm text-slate-600"><strong>Date:</strong> {new Date(record.visitDate).toLocaleDateString()}</p>
-                              {record.notes && <p className="text-sm text-slate-600 mt-2"><strong>Notes:</strong> {record.notes}</p>}
+                      {medicalRecords.map((record, idx) => (
+                        <div key={record._id} className="p-5 bg-white rounded-xl border-2 border-green-300 hover:border-green-500 transition transform hover:shadow-lg hover:scale-102">
+                          <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-600 to-emerald-600 text-white flex items-center justify-center font-bold">
+                                  #{idx + 1}
+                                </div>
+                                <div>
+                                  <p className="font-black text-slate-800 text-lg">{record.patientId?.name || 'Unknown'}</p>
+                                  <p className="text-xs text-slate-500">Patient ID: {record.patientId?._id?.slice(-6)}</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                                  <p className="text-xs text-blue-600 font-bold uppercase mb-1">📋 Diagnosis</p>
+                                  <p className="font-semibold text-slate-800">{record.diagnosis}</p>
+                                </div>
+                                <div className="bg-cyan-50 p-3 rounded-lg border border-cyan-200">
+                                  <p className="text-xs text-cyan-600 font-bold uppercase mb-1">🏥 Department</p>
+                                  <p className="font-semibold text-slate-800">{record.department}</p>
+                                </div>
+                              </div>
+                              {record.notes && (
+                                <div className="bg-yellow-50 p-3 rounded-lg border-l-4 border-yellow-500 mb-3">
+                                  <p className="text-xs text-yellow-600 font-bold uppercase mb-1">📝 Notes</p>
+                                  <p className="text-slate-700">{record.notes}</p>
+                                </div>
+                              )}
+                              <p className="text-xs text-slate-500">📅 {new Date(record.visitDate).toLocaleDateString()}</p>
+                            </div>
+                            <div className="bg-gradient-to-br from-green-100 to-emerald-100 p-3 rounded-lg border border-green-300">
+                              <p className="text-xs text-green-700 font-black">✅ RECORDED</p>
                             </div>
                           </div>
                         </div>
@@ -370,43 +448,101 @@ export default function DoctorDashboard() {
             {/* PROFILE TAB */}
             {activeTab === 'profile' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Profile</h2>
+                <h2 className="text-3xl font-black text-slate-800 mb-8">👨‍⚕️ Doctor Profile</h2>
 
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-md">
-                  <div className="text-center mb-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white text-4xl font-bold mx-auto shadow-lg">
-                      {user?.name?.charAt(0).toUpperCase()}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Profile Card */}
+                  <div className="lg:col-span-2">
+                    <div className="bg-gradient-to-br from-purple-50 via-pink-50 to-indigo-50 p-8 rounded-2xl shadow-lg border-2 border-purple-300 hover:shadow-xl transition-all">
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-8">
+                        <div className="flex items-center space-x-6">
+                          <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-purple-500 via-pink-400 to-indigo-500 flex items-center justify-center text-white text-5xl font-black shadow-xl border-4 border-white">
+                            {user?.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <h1 className="text-4xl font-black text-slate-800">Dr. {user?.name}</h1>
+                            <p className="text-purple-600 font-black text-xl mt-2">{user?.specialization}</p>
+                            <div className="flex gap-2 mt-3">
+                              <span className="px-3 py-1 bg-green-200 text-green-800 rounded-full text-sm font-bold">✅ Verified Doctor</span>
+                              <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-sm font-bold">⭐ 4.8 Rating</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Info Cards */}
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-purple-500 hover:shadow-md transition">
+                          <Mail className="w-6 h-6 text-purple-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Email Address</p>
+                            <p className="font-bold text-slate-800 text-lg break-all">{user?.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-indigo-500 hover:shadow-md transition">
+                          <Briefcase className="w-6 h-6 text-indigo-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Specialization</p>
+                            <p className="font-bold text-slate-800 text-lg">{user?.specialization || 'General Medicine'}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-pink-500 hover:shadow-md transition">
+                          <Heart className="w-6 h-6 text-pink-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">License Status</p>
+                            <p className="font-bold text-slate-800 text-lg">🔐 Active & Verified</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-green-500 hover:shadow-md transition">
+                          <Clock className="w-6 h-6 text-green-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Availability</p>
+                            <p className="font-bold text-slate-800 text-lg">🟢 Online & Available</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
+                  {/* Stats Sidebar */}
                   <div className="space-y-4">
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <User className="w-5 h-5 text-indigo-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Name</p>
-                        <p className="font-bold text-slate-800">{user?.name}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-pink-50 to-pink-100 p-6 rounded-xl border-2 border-pink-300 shadow-lg">
+                      <p className="text-sm text-pink-600 font-bold uppercase mb-2">💖 Rating</p>
+                      <p className="text-4xl font-black text-pink-700">4.8</p>
+                      <p className="text-pink-600 text-sm mt-2">⭐⭐⭐⭐⭐ Excellent</p>
                     </div>
 
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <Mail className="w-5 h-5 text-cyan-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Email</p>
-                        <p className="font-bold text-slate-800 break-all">{user?.email}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border-2 border-blue-300 shadow-lg">
+                      <p className="text-sm text-blue-600 font-bold uppercase mb-2">👥 Patients</p>
+                      <p className="text-4xl font-black text-blue-700">247</p>
+                      <p className="text-blue-600 text-sm mt-2">Success stories</p>
                     </div>
 
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <Briefcase className="w-5 h-5 text-purple-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Specialization</p>
-                        <p className="font-bold text-slate-800">{user?.specialization}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border-2 border-green-300 shadow-lg">
+                      <p className="text-sm text-green-600 font-bold uppercase mb-2">✅ Consultations</p>
+                      <p className="text-4xl font-black text-green-700">892</p>
+                      <p className="text-green-600 text-sm mt-2">Total completed</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-6 rounded-xl border-2 border-yellow-300 shadow-lg">
+                      <p className="text-sm text-yellow-600 font-bold uppercase mb-2">📅 Experience</p>
+                      <p className="text-3xl font-black text-yellow-700">12+ yrs</p>
+                      <p className="text-yellow-600 text-sm mt-2">In practice</p>
                     </div>
                   </div>
+                </div>
 
-                  <button onClick={logout} className="w-full mt-8 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition">
-                    Logout
+                {/* Logout Button */}
+                <div className="flex gap-3">
+                  <button onClick={logout} className="flex-1 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    🚪 Logout
+                  </button>
+                  <button className="flex-1 py-4 bg-gradient-to-r from-slate-600 to-slate-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    ⚙️ Settings
                   </button>
                 </div>
               </div>

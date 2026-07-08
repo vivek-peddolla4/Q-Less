@@ -1,0 +1,12 @@
+# Ignore these folders when Docker builds the backend image.
+
+node_modules
+.git
+.gitignore
+*.log
+backend.log
+.env
+.env.*
+uploads
+README.md
+*.md

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../config';
 import { toast } from 'react-toastify';
 import SymptomForm from '../components/SymptomForm';
 
@@ -70,7 +71,7 @@ const QRScanner = () => {
 
     try {
       const token = localStorage.getItem('accessToken');
-      const res = await axios.post('http://localhost:8000/api/queue/scan-qr', {
+      const res = await axios.post(`${API_BASE_URL}/api/queue/scan-qr`, {
         hospitalId: qrData.hospitalId,
         qrLat: qrData.lat,
         qrLng: qrData.lng,
@@ -93,7 +94,7 @@ const QRScanner = () => {
   const handleFormSubmit = async (formData) => {
     try {
       const token = localStorage.getItem('accessToken');
-      const res = await axios.post('http://localhost:8000/api/queue/join-qr', {
+      const res = await axios.post(`${API_BASE_URL}/api/queue/join-qr`, {
         hospitalId: scanResult.hospitalId,
         location: userLocation,
         ...formData

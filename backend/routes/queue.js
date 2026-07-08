@@ -12,12 +12,131 @@ const { sendEmail, sendSMS } = require('../utils/notifyService');
 
 const router = express.Router();
 
-const redisClient = createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// In-memory queue fallback (only used in development when Redis is unavailable)
+const memoryQueues = new Map();
+let redisClient = null;
+let useRedis = false;
+
+// Redis connection with environment-aware failure strategy
+const redisClient_temp = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  socket: {
+    // In production: attempt 3 reconnects then give up
+    // In development: attempt 3 reconnects then fall back to memory
+    reconnectStrategy: (retries) => {
+      if (retries >= 3) {
+        console.error(`[REDIS] Failed to connect after ${retries} attempts.`);
+        return new Error('Redis max retries exceeded');
+      }
+      return Math.min(retries * 200, 1000); // exponential backoff
+    }
+  }
 });
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
-redisClient.connect().catch(console.error);
+redisClient_temp.on('error', (err) => {
+  if (IS_PRODUCTION) {
+    // In production: crash loudly — a broken Redis means the queue is unreliable
+    console.error('[REDIS] FATAL: Redis connection error in production:', err.message);
+    console.error('[REDIS] Shutting down — cannot run with unreliable queue storage.');
+    process.exit(1);
+  } else {
+    // In development: warn and fall back to in-memory queue
+    console.warn('[REDIS] Dev fallback: Redis unavailable, using in-memory queue:', err.message);
+    useRedis = false;
+  }
+});
+
+redisClient_temp.on('connect', () => {
+  console.log('[REDIS] Connected to Redis successfully.');
+  useRedis = true;
+  redisClient = redisClient_temp;
+});
+
+redisClient_temp.on('ready', () => {
+  console.log('[REDIS] Redis client is ready to accept commands.');
+});
+
+redisClient_temp.connect().catch(err => {
+  if (IS_PRODUCTION) {
+    console.error('[REDIS] FATAL: Could not connect to Redis in production:', err.message);
+    process.exit(1);
+  } else {
+    console.warn('[REDIS] Dev mode: Could not connect to Redis, falling back to in-memory queue:', err.message);
+    redisClient = null;
+    useRedis = false;
+  }
+});
+
+
+// Queue operation wrapper functions that work with both Redis and memory
+async function queueRPush(key, value) {
+  if (useRedis && redisClient) {
+    return await redisClient.rPush(key, value);
+  } else {
+    if (!memoryQueues.has(key)) memoryQueues.set(key, []);
+    memoryQueues.get(key).push(value);
+    return memoryQueues.get(key).length;
+  }
+}
+
+async function queueLPush(key, value) {
+  if (useRedis && redisClient) {
+    return await redisClient.lPush(key, value);
+  } else {
+    if (!memoryQueues.has(key)) memoryQueues.set(key, []);
+    memoryQueues.get(key).unshift(value);
+    return memoryQueues.get(key).length;
+  }
+}
+
+async function queueLRange(key, start, stop) {
+  if (useRedis && redisClient) {
+    return await redisClient.lRange(key, start, stop);
+  } else {
+    const queue = memoryQueues.get(key) || [];
+    if (stop === -1) return queue;
+    return queue.slice(start, stop >= 0 ? stop + 1 : queue.length);
+  }
+}
+
+async function queueLPos(key, value) {
+  if (useRedis && redisClient) {
+    return await redisClient.lPos(key, value);
+  } else {
+    const queue = memoryQueues.get(key) || [];
+    return queue.indexOf(value);
+  }
+}
+
+async function queueLRem(key, count, value) {
+  if (useRedis && redisClient) {
+    return await redisClient.lRem(key, count, value);
+  } else {
+    const queue = memoryQueues.get(key) || [];
+    let removed = 0;
+    let i = 0;
+    while (i < queue.length && removed < Math.abs(count)) {
+      if (queue[i] === value) {
+        queue.splice(i, 1);
+        removed++;
+      } else {
+        i++;
+      }
+    }
+    return removed;
+  }
+}
+
+async function queueLPop(key) {
+  if (useRedis && redisClient) {
+    return await redisClient.lPop(key);
+  } else {
+    const queue = memoryQueues.get(key) || [];
+    return queue.shift();
+  }
+}
 
 const AVG_SERVICE_TIME = 15; // 15 mins
 
@@ -43,7 +162,7 @@ async function notifyPatient(token, textMessage) {
 
 async function notifyProximity(department, io, facilityId = 'default') {
   const queueKey = `queue:${facilityId}:${department}`;
-  const nextIds = await redisClient.lRange(queueKey, 0, 4); // first 5
+  const nextIds = await queueLRange(queueKey, 0, 4); // first 5
 
   for (let idx = 0; idx < nextIds.length; idx += 1) {
     const queueToken = await QueueToken.findById(nextIds[idx]);
@@ -51,7 +170,12 @@ async function notifyProximity(department, io, facilityId = 'default') {
 
     queueToken.position = idx + 1;
     queueToken.estimatedWaitTime = queueToken.position * AVG_SERVICE_TIME;
-    queueToken.facilityId = facilityId;
+    // Only set facilityId if it's an actual ID, not the 'default' string
+    if (facilityId !== 'default') {
+      queueToken.facilityId = facilityId;
+    } else {
+      queueToken.facilityId = null;
+    }
     await queueToken.save();
 
     if (queueToken.position <= 5) {
@@ -69,7 +193,8 @@ async function getAdaptiveDepartment(symptoms) {
   let urgency = 'Low';
 
   try {
-    const flaskResponse = await axios.post('http://127.0.0.1:5000/predict', { symptoms });
+    const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:5000';
+    const flaskResponse = await axios.post(`${AI_SERVICE_URL}/predict`, { symptoms });
     if (flaskResponse.data) {
       department = flaskResponse.data.department || department;
       urgency = flaskResponse.data.urgency || urgency;
@@ -251,13 +376,13 @@ router.post('/join-qr', auth, async (req, res) => {
     const facilityKey = facilityId ? facilityId : 'default';
     const queueKey = `queue:${facilityKey}:${department}`;
     if (isEmergency) {
-      await redisClient.lPush(queueKey, token._id.toString());
+      await queueLPush(queueKey, token._id.toString());
     } else {
-      await redisClient.rPush(queueKey, token._id.toString());
+      await queueRPush(queueKey, token._id.toString());
     }
     
     // 4. Get Position
-    const elements = await redisClient.lRange(queueKey, 0, -1);
+    const elements = await queueLRange(queueKey, 0, -1);
     const positionIndex = elements.indexOf(token._id.toString());
     
     token.position = positionIndex + 1;
@@ -347,13 +472,13 @@ router.post('/join', auth, async (req, res) => {
     
     // If emergency, prioritize by adding to front (LPUSH), else back (RPUSH)
     if (isEmergency) {
-      await redisClient.lPush(queueKey, token._id.toString());
+      await queueLPush(queueKey, token._id.toString());
     } else {
-      await redisClient.rPush(queueKey, token._id.toString());
+      await queueRPush(queueKey, token._id.toString());
     }
     
     // Get Position
-    const elements = await redisClient.lRange(queueKey, 0, -1);
+    const elements = await queueLRange(queueKey, 0, -1);
     const positionIndex = elements.indexOf(token._id.toString());
     
     token.position = positionIndex + 1;
@@ -393,7 +518,7 @@ router.get('/status/:tokenId', auth, async (req, res) => {
     
     const facilityKey = token.facilityId ? token.facilityId.toString() : 'default';
     const queueKey = `queue:${facilityKey}:${token.department}`;
-    const elements = await redisClient.lRange(queueKey, 0, -1);
+    const elements = await queueLRange(queueKey, 0, -1);
     const positionIndex = elements.indexOf(token._id.toString());
     
     if (positionIndex === -1 && token.status !== 'serving') {
@@ -422,7 +547,7 @@ router.post('/serve/:department', auth, async (req, res) => {
     const queueKey = `queue:${facilityId}:${department}`;
     
     // Pop from left (front of queue)
-    const tokenId = await redisClient.lPop(queueKey);
+    const tokenId = await queueLPop(queueKey);
     
     if (!tokenId) {
       return res.status(404).json({ message: 'Queue is empty' });
@@ -562,7 +687,7 @@ router.get('/my-active', auth, async (req, res) => {
     } else {
        const facilityKey = token.facilityId ? token.facilityId.toString() : 'default';
        const queueKey = `queue:${facilityKey}:${token.department}`;
-       const elements = await redisClient.lRange(queueKey, 0, -1);
+       const elements = await queueLRange(queueKey, 0, -1);
        const positionIndex = elements.indexOf(token._id.toString());
        if (positionIndex !== -1) {
          token.position = positionIndex + 1;
@@ -602,30 +727,38 @@ router.post('/reassign/:tokenId', auth, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
     
     const { department } = req.body;
+    if (!department || typeof department !== 'string' || !department.trim()) {
+      return res.status(400).json({ message: 'A valid target department is required' });
+    }
+
     const token = await QueueToken.findById(req.params.tokenId);
     if (!token) return res.status(404).json({ message: 'Token not found' });
     
-    // remove from old redis list
-    const oldKey = `queue:${token.department}`;
-    await redisClient.lRem(oldKey, 0, token._id.toString());
     const oldDept = token.department;
+    const facilityKey = token.facilityId ? token.facilityId.toString() : 'default';
+
+    // FIX: Use the correct facility-prefixed key format (was missing facility prefix before)
+    const oldKey = `queue:${facilityKey}:${oldDept}`;
+    await queueLRem(oldKey, 0, token._id.toString());
     
-    // add to new redis list
-    token.department = department;
-    const oldFacility = token.facilityId ? token.facilityId.toString() : 'default';
-    const newFacility = token.facilityId ? token.facilityId.toString() : 'default';
-    const newKey = `queue:${newFacility}:${department}`;
+    // add to new redis list with correct facility-prefixed key
+    const newKey = `queue:${facilityKey}:${department.trim()}`;
+    token.department = department.trim();
+
     if (token.isEmergency) {
-      await redisClient.lPush(newKey, token._id.toString());
+      await queueLPush(newKey, token._id.toString());
     } else {
-      await redisClient.rPush(newKey, token._id.toString());
+      await queueRPush(newKey, token._id.toString());
     }
     
     await token.save();
-    req.io.emit('queueUpdate', { department });
-    req.io.emit('queueUpdate', { department: oldDept });
-    await notifyProximity(department, req.io);
-    await notifyProximity(oldDept, req.io);
+
+    req.io.emit('queueUpdate', { department: token.department, facilityId: facilityKey });
+    req.io.emit('queueUpdate', { department: oldDept, facilityId: facilityKey });
+
+    // Pass correct facilityId to proximity notifiers so they use the right queue key
+    await notifyProximity(token.department, req.io, facilityKey);
+    await notifyProximity(oldDept, req.io, facilityKey);
     
     res.json({ message: 'Reassigned successfully', token });
   } catch (err) {

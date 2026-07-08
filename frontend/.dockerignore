@@ -1,0 +1,12 @@
+# Ignore these folders when Docker builds the frontend image.
+# This keeps the image build context small and fast.
+
+node_modules
+dist
+.git
+.gitignore
+*.log
+*.md
+.env
+.env.*
+.cache

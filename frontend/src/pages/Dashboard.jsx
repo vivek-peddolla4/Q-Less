@@ -3,12 +3,14 @@ import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import axios from 'axios';
+import { API_BASE_URL, AI_SERVICE_URL } from '../config';
 import { Clock, Upload, CheckCircle2, AlertTriangle, QrCode, Activity, User, Mail } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import UserSidebar from '../components/UserSidebar';
 import PatientHistory from '../components/PatientHistory';
 import PrescriptionsView from '../components/PrescriptionsView';
 import PatientMedicalForm from '../components/PatientMedicalForm';
+import HealthAnalytics from '../components/HealthAnalytics';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -28,7 +30,7 @@ export default function Dashboard() {
 
     const fetchActiveQueue = async () => {
       try {
-        const { data } = await axios.get('http://localhost:8000/api/queue/my-active', {
+        const { data } = await axios.get(`${API_BASE_URL}/api/queue/my-active`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setQueueToken(data);
@@ -39,23 +41,31 @@ export default function Dashboard() {
 
     const fetchMedicalRecords = async () => {
       try {
-        const { data } = await axios.get(`http://localhost:8000/api/medical/records/${user.id}`, {
+        if (!user?.id) {
+          console.warn('User ID not available for fetching medical records');
+          return;
+        }
+        console.log('Fetching medical records for user:', user.id);
+        const { data } = await axios.get(`${API_BASE_URL}/api/medical/records/${user.id}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        console.log('Medical records fetched:', data);
         setMedicalRecords(data);
       } catch (err) {
-        console.error('Error fetching records:', err);
+        console.error('Error fetching records:', err.response?.data || err.message);
+        setMedicalRecords([]);
       }
     };
 
     fetchActiveQueue();
     fetchMedicalRecords();
 
-    const newSocket = io('http://localhost:8000');
+    const newSocket = io(API_BASE_URL);
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
        newSocket.emit('join', user.id);
+       newSocket.emit('joinPatientRoom', user.id); // Join patient room for medical record updates
     });
 
     newSocket.on('queueUpdate', () => {
@@ -66,12 +76,22 @@ export default function Dashboard() {
       setNotification(data.message);
     });
 
+    newSocket.on('medicalRecordCreated', (data) => {
+      // Refresh medical records when a new one is created by a doctor
+      console.log('Dashboard: Received medicalRecordCreated event:', data);
+      console.log('Comparing user.id:', { received: data.patientId, expected: user.id, match: data.patientId === user.id });
+      if (data.patientId === user.id || data.patientId.toString() === user.id || data.patientId.toString() === user.id.toString()) {
+        console.log('Dashboard: Refreshing medical records due to new record creation');
+        fetchMedicalRecords();
+      }
+    });
+
     return () => newSocket.close();
   }, [token, user, queueToken?._id]);
 
   const fetchQueueStatus = async (tokenId) => {
     try {
-      const { data } = await axios.get(`http://localhost:8000/api/queue/status/${tokenId}`, {
+      const { data } = await axios.get(`${API_BASE_URL}/api/queue/status/${tokenId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setQueueToken(data);
@@ -83,7 +103,7 @@ export default function Dashboard() {
   const analyzeSymptoms = async () => {
     if (!symptoms.trim()) return alert('Please enter your symptoms first!');
     try {
-      const { data } = await axios.post('http://localhost:5000/predict', { symptoms });
+      const { data } = await axios.post(`${AI_SERVICE_URL}/predict`, { symptoms });
       setPrediction(data);
     } catch (err) {
       console.error(err);
@@ -93,7 +113,7 @@ export default function Dashboard() {
 
   const joinQueue = async () => {
     try {
-      const { data } = await axios.post('http://localhost:8000/api/queue/join', {
+      const { data } = await axios.post(`${API_BASE_URL}/api/queue/join`, {
         department: prediction.department,
         urgency: prediction.urgency,
         issues: symptoms,
@@ -119,7 +139,7 @@ export default function Dashboard() {
     const formData = new FormData();
     formData.append('document', file);
     try {
-      await axios.post('http://localhost:8000/api/upload', formData, {
+      await axios.post(`${API_BASE_URL}/api/upload`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
       alert('File uploaded successfully!');
@@ -160,23 +180,23 @@ export default function Dashboard() {
 
                 {/* Symptom Analyzer */}
                 {!queueToken || queueToken.status === 'cancelled' || queueToken.status === 'completed' ? (
-                  <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-100">
-                    <h3 className="text-2xl font-bold mb-2 text-slate-800">How are you feeling today?</h3>
-                    <p className="text-slate-500 mb-6">Describe your symptoms to get directed to the right department.</p>
+                  <div className="bg-gradient-to-br from-cyan-50 to-blue-50 p-8 rounded-2xl shadow-lg border-2 border-cyan-200">
+                    <h3 className="text-2xl font-black mb-2 text-slate-800">💊 How are you feeling today?</h3>
+                    <p className="text-slate-600 mb-6 font-medium">Describe your symptoms to get directed to the right department.</p>
                     
                     <textarea 
                       value={symptoms}
                       onChange={(e) => setSymptoms(e.target.value)}
-                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-32 mb-4 transition-all"
+                      className="w-full p-4 bg-white border-2 border-cyan-300 rounded-xl focus:ring-2 focus:ring-cyan-500 outline-none resize-none h-32 mb-4 transition-all font-medium"
                       placeholder="e.g., I have a severe headache and fever..."
                     ></textarea>
                     
                     <button 
                       onClick={analyzeSymptoms}
-                      className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 flex items-center"
+                      className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-black rounded-xl hover:shadow-lg transition transform hover:scale-105 shadow-lg flex items-center text-lg"
                     >
-                      <Activity className="w-5 h-5 mr-2" />
-                      Analyze Symptoms with AI
+                      <Activity className="w-6 h-6 mr-2" />
+                      🤖 Analyze Symptoms with AI
                     </button>
 
                     {prediction && (
@@ -205,31 +225,31 @@ export default function Dashboard() {
                     )}
                   </div>
                 ) : (
-                  <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-100">
-                    <h3 className="text-2xl font-bold mb-6 text-slate-800">Your Current Status</h3>
+                  <div className="bg-gradient-to-br from-blue-50 to-cyan-50 p-8 rounded-2xl shadow-lg border-2 border-cyan-200">
+                    <h3 className="text-2xl font-black mb-8 text-slate-800 flex items-center gap-2">⏳ Your Current Status</h3>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="bg-gradient-to-br from-indigo-500 to-cyan-400 p-6 rounded-2xl text-white shadow-lg">
-                        <p className="text-indigo-100 font-medium mb-2">Position in Queue</p>
-                        <div className="text-5xl font-black mb-3">{queueToken.position || (queueToken.status === 'serving' ? "Now" : "0")}</div>
-                        <span className="inline-block px-3 py-1 bg-white/20 text-sm font-semibold rounded-lg">
-                          {queueToken.department}
+                      <div className="bg-gradient-to-br from-indigo-500 to-cyan-400 p-7 rounded-2xl text-white shadow-lg hover:shadow-xl transition">
+                        <p className="text-indigo-100 font-black mb-2 uppercase">📍 Position in Queue</p>
+                        <div className="text-6xl font-black mb-4">{queueToken.position || (queueToken.status === 'serving' ? "🟢" : "0")}</div>
+                        <span className="inline-block px-4 py-2 bg-white/20 text-sm font-black rounded-lg backdrop-blur-sm">
+                          🏥 {queueToken.department}
                         </span>
                       </div>
                       
-                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 flex flex-col justify-center items-center text-center">
-                        <Clock className="w-10 h-10 text-orange-500 mb-3" />
-                        <p className="text-slate-500 font-medium">Estimated Wait</p>
-                        <div className="text-4xl font-black text-slate-800 mt-1">
-                          {queueToken.estimatedWaitTime} <span className="text-lg text-slate-500 font-normal">mins</span>
+                      <div className="bg-gradient-to-br from-orange-50 to-yellow-50 p-7 rounded-2xl border-2 border-orange-300 flex flex-col justify-center items-center text-center shadow-lg">
+                        <Clock className="w-12 h-12 text-orange-500 mb-3" />
+                        <p className="text-slate-600 font-black uppercase">⏱️ Estimated Wait</p>
+                        <div className="text-5xl font-black text-slate-800 mt-3">
+                          {queueToken.estimatedWaitTime || '0'} <span className="text-lg text-slate-600 font-normal">mins</span>
                         </div>
                       </div>
                     </div>
 
                     {queueToken.status === 'serving' && (
-                      <div className="mt-6 p-4 bg-green-50 text-green-700 rounded-lg border border-green-200 flex items-center gap-3 font-semibold">
-                        <CheckCircle2 className="w-6 h-6" />
-                        Please head to the {queueToken.department} counter. It is your turn!
+                      <div className="mt-8 p-6 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-2xl border-2 border-green-300 flex items-center gap-4 font-black text-lg shadow-lg animate-pulse">
+                        <CheckCircle2 className="w-8 h-8 flex-shrink-0" />
+                        <span>🎉 Please head to the {queueToken.department} counter. It is your turn!</span>
                       </div>
                     )}
                   </div>
@@ -237,23 +257,23 @@ export default function Dashboard() {
 
                 {/* Quick Actions */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-gradient-to-br from-indigo-50 to-white p-6 rounded-2xl border border-indigo-100 shadow-sm">
-                    <QrCode className="w-8 h-8 text-indigo-600 mb-3" />
-                    <h3 className="text-lg font-bold text-slate-800 mb-2">Scan QR Code</h3>
-                    <p className="text-slate-600 text-sm mb-4">Join the queue instantly at the hospital</p>
+                  <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-7 rounded-2xl border-2 border-indigo-300 shadow-lg hover:shadow-xl transition transform hover:scale-102">
+                    <QrCode className="w-10 h-10 text-indigo-600 mb-3" />
+                    <h3 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2">📱 Scan QR Code</h3>
+                    <p className="text-slate-600 text-sm mb-5 font-medium">Join the queue instantly at the hospital</p>
                     <button 
                       onClick={() => navigate('/scan')}
-                      className="w-full py-2 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition"
+                      className="w-full py-3 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-black rounded-lg hover:shadow-lg transition transform hover:scale-105"
                     >
-                      Scan Now
+                      🔍 Scan Now
                     </button>
                   </div>
 
-                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <Upload className="w-8 h-8 text-cyan-600 mb-3" />
-                    <h3 className="text-lg font-bold text-slate-800 mb-2">Upload Documents</h3>
-                    <p className="text-slate-600 text-sm mb-4">Share medical records and prescriptions</p>
-                    <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center hover:bg-slate-50 transition cursor-pointer group">
+                  <div className="bg-gradient-to-br from-cyan-50 to-blue-100 p-7 rounded-2xl border-2 border-cyan-300 shadow-lg hover:shadow-xl transition transform hover:scale-102">
+                    <Upload className="w-10 h-10 text-cyan-600 mb-3" />
+                    <h3 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2">📄 Upload Documents</h3>
+                    <p className="text-slate-600 text-sm mb-5 font-medium">Share medical records and prescriptions</p>
+                    <div className="border-2 border-dashed border-cyan-300 rounded-lg p-4 text-center hover:bg-cyan-50 transition cursor-pointer group bg-white">
                       <input 
                         type="file" 
                         id="file-upload" 
@@ -283,7 +303,8 @@ export default function Dashboard() {
             {/* MEDICAL HISTORY TAB */}
             {activeTab === 'history' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Medical History</h2>
+                <h2 className="text-3xl font-black text-slate-800 mb-6">Medical History & Analytics</h2>
+                <HealthAnalytics userId={user?.id} token={token} />
                 <PatientHistory patientId={user?.id} refreshTrigger={refreshHistoryTrigger} />
               </div>
             )}
@@ -300,18 +321,41 @@ export default function Dashboard() {
                   <PrescriptionsView patientId={user?.id} refreshTrigger={refreshHistoryTrigger} />
                   
                   {medicalRecords.length > 0 && (
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-xl font-bold text-slate-800 mb-4">Medical Records</h3>
+                    <div className="bg-gradient-to-br from-slate-50 to-purple-50 p-8 rounded-2xl shadow-lg border-2 border-purple-200">
+                      <h3 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-2">📋 My Medical Records</h3>
                       <div className="space-y-3">
-                        {medicalRecords.map(record => (
-                          <div key={record._id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 hover:border-indigo-300 transition">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="font-bold text-slate-800">Dr. {record.doctorId?.name}</p>
-                                <p className="text-sm text-slate-600"><strong>Diagnosis:</strong> {record.diagnosis}</p>
-                                <p className="text-sm text-slate-600"><strong>Department:</strong> {record.department}</p>
-                                <p className="text-sm text-slate-600"><strong>Date:</strong> {new Date(record.visitDate).toLocaleDateString()}</p>
-                                {record.notes &&  <p className="text-sm text-slate-600 mt-2"><strong>Notes:</strong> {record.notes}</p>}
+                        {medicalRecords.map((record, idx) => (
+                          <div key={record._id} className="p-5 bg-white rounded-xl border-2 border-purple-300 hover:border-purple-500 transition transform hover:shadow-lg hover:scale-102">
+                            <div className="flex justify-between items-start gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-3">
+                                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 text-white flex items-center justify-center font-bold">
+                                    #{idx + 1}
+                                  </div>
+                                  <div>
+                                    <p className="font-black text-slate-800 text-lg">👨‍⚕️ Dr. {record.doctorId?.name}</p>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                  <div className="bg-pink-50 p-3 rounded-lg border border-pink-200">
+                                    <p className="text-xs text-pink-600 font-bold uppercase mb-1">📋 Diagnosis</p>
+                                    <p className="font-semibold text-slate-800">{record.diagnosis}</p>
+                                  </div>
+                                  <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                                    <p className="text-xs text-purple-600 font-bold uppercase mb-1">🏥 Department</p>
+                                    <p className="font-semibold text-slate-800">{record.department}</p>
+                                  </div>
+                                </div>
+                                {record.notes && (
+                                  <div className="bg-yellow-50 p-3 rounded-lg border-l-4 border-yellow-500 mb-3">
+                                    <p className="text-xs text-yellow-600 font-bold uppercase mb-1">📝 Notes</p>
+                                    <p className="text-slate-700">{record.notes}</p>
+                                  </div>
+                                )}
+                                <p className="text-xs text-slate-500">📅 {new Date(record.visitDate).toLocaleDateString()}</p>
+                              </div>
+                              <div className="bg-gradient-to-br from-purple-100 to-pink-100 p-3 rounded-lg border border-purple-300">
+                                <p className="text-xs text-purple-700 font-black">✅ RECORDED</p>
                               </div>
                             </div>
                           </div>
@@ -321,8 +365,10 @@ export default function Dashboard() {
                   )}
 
                   {medicalRecords.length === 0 && (
-                    <div className="text-center py-12 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-                      <p className="text-slate-500">No medical records found</p>
+                    <div className="text-center py-16 bg-gradient-to-br from-white to-slate-50 rounded-2xl border-2 border-dashed border-slate-300 shadow-sm">
+                      <p className="text-3xl mb-2">📭</p>
+                      <p className="text-slate-600 font-bold text-lg">No medical records yet</p>
+                      <p className="text-slate-500 text-sm mt-2">Your medical records will appear here after you visit a doctor</p>
                     </div>
                   )}
                 </div>
@@ -332,35 +378,93 @@ export default function Dashboard() {
             {/* PROFILE TAB */}
             {activeTab === 'profile' && (
               <div className="space-y-6 animate-in fade-in duration-500">
-                <h2 className="text-3xl font-black text-slate-800 mb-6">Profile</h2>
+                <h2 className="text-3xl font-black text-slate-800 mb-8">👤 My Profile</h2>
 
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 max-w-md">
-                  <div className="text-center mb-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center text-white text-4xl font-bold mx-auto shadow-lg">
-                      {user?.name?.charAt(0).toUpperCase()}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Profile Card */}
+                  <div className="lg:col-span-2">
+                    <div className="bg-gradient-to-br from-indigo-50 to-cyan-50 p-8 rounded-2xl shadow-lg border-2 border-indigo-200 hover:shadow-xl transition-all">
+                      {/* Header with Avatar */}
+                      <div className="flex items-start justify-between mb-8">
+                        <div className="flex items-center space-x-6">
+                          <div className="w-32 h-32 rounded-full bg-gradient-to-tr from-indigo-500 via-cyan-400 to-blue-500 flex items-center justify-center text-white text-5xl font-black shadow-xl border-4 border-white">
+                            {user?.name?.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <h1 className="text-4xl font-black text-slate-800 leading-tight">{user?.name}</h1>
+                            <p className="text-cyan-600 font-bold text-lg mt-2">👤 Patient</p>
+                            <div className="flex gap-2 mt-3">
+                              <span className="px-3 py-1 bg-green-200 text-green-800 rounded-full text-sm font-bold">✅ Verified</span>
+                              <span className="px-3 py-1 bg-blue-200 text-blue-800 rounded-full text-sm font-bold">Active</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Info Cards */}
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-indigo-500 hover:shadow-md transition">
+                          <Mail className="w-6 h-6 text-indigo-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Email Address</p>
+                            <p className="font-bold text-slate-800 text-lg break-all">{user?.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-cyan-500 hover:shadow-md transition">
+                          <User className="w-6 h-6 text-cyan-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Account Type</p>
+                            <p className="font-bold text-slate-800 text-lg">Patient Account</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-4 p-5 bg-white rounded-xl border-l-4 border-green-500 hover:shadow-md transition">
+                          <Activity className="w-6 h-6 text-green-600" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500 font-bold uppercase">Account Status</p>
+                            <p className="font-bold text-slate-800 text-lg">🟢 Active & Healthy</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
+                  {/* Stats Sidebar */}
                   <div className="space-y-4">
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <User className="w-5 h-5 text-indigo-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Name</p>
-                        <p className="font-bold text-slate-800">{user?.name}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl border-2 border-blue-300 shadow-lg">
+                      <p className="text-sm text-blue-600 font-bold uppercase mb-2">📋 Medical Visits</p>
+                      <p className="text-4xl font-black text-blue-700">{medicalRecords.length}</p>
+                      <p className="text-blue-600 text-sm mt-2">Total consultations</p>
                     </div>
 
-                    <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-xl">
-                      <Mail className="w-5 h-5 text-cyan-600" />
-                      <div>
-                        <p className="text-xs text-slate-500 uppercase tracking-wide">Email</p>
-                        <p className="font-bold text-slate-800 break-all">{user?.email}</p>
-                      </div>
+                    <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl border-2 border-purple-300 shadow-lg">
+                      <p className="text-sm text-purple-600 font-bold uppercase mb-2">🏥 Your Doctors</p>
+                      <p className="text-4xl font-black text-purple-700">{new Set(medicalRecords.map(r => r.doctorId?._id)).size}</p>
+                      <p className="text-purple-600 text-sm mt-2">Specialists treating you</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl border-2 border-green-300 shadow-lg">
+                      <p className="text-sm text-green-600 font-bold uppercase mb-2">⭐ Profile</p>
+                      <p className="text-3xl font-black text-green-700">100%</p>
+                      <p className="text-green-600 text-sm mt-2">Profile completeness</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-xl border-2 border-red-300 shadow-lg">
+                      <p className="text-sm text-red-600 font-bold uppercase mb-2">🔐 Security</p>
+                      <p className="text-lg font-black text-red-700">Strong</p>
+                      <p className="text-red-600 text-sm mt-2">Password protected</p>
                     </div>
                   </div>
+                </div>
 
-                  <button onClick={logout} className="w-full mt-8 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition">
-                    Logout
+                {/* Logout Button */}
+                <div className="flex gap-3">
+                  <button onClick={logout} className="flex-1 py-4 bg-gradient-to-r from-red-600 to-red-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    🚪 Logout
+                  </button>
+                  <button className="flex-1 py-4 bg-gradient-to-r from-slate-600 to-slate-700 text-white font-black text-lg rounded-xl hover:shadow-lg transition-all hover:scale-105">
+                    📝 Edit Profile
                   </button>
                 </div>
               </div>
